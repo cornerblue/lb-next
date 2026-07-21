@@ -1,7 +1,10 @@
 import { Flex, Tag, Typography } from 'antd';
 import Link from 'next/link';
 import { FC } from 'react';
-import { LinkedPullRequest } from '@/5_shared/utils/githubLinkedPulls';
+import {
+    countOpenLinkedPulls,
+    type LinkedPullRequest,
+} from '@/5_shared/utils/githubLinkedPulls';
 
 type Props = {
     pulls: LinkedPullRequest[];
@@ -13,7 +16,7 @@ type Props = {
 const IssueExistingPulls: FC<Props> = ({ pulls }) => {
     if (!pulls.length) return null;
 
-    const openCount = pulls.filter((p) => p.state === 'open').length;
+    const openCount = countOpenLinkedPulls(pulls);
 
     return (
         <Flex vertical gap="small">

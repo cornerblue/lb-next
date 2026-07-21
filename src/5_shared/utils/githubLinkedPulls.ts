@@ -1,5 +1,5 @@
 /**
- * Resolve open GitHub pull requests that reference a bounty issue.
+ * Resolve GitHub pull requests that reference a bounty issue.
  * Used to surface "Existing PRs" on the issue detail page (#76).
  */
 
@@ -12,7 +12,7 @@ export type LinkedPullRequest = {
     user_login: string;
 };
 
-type GhSearchItem = {
+export type GhSearchItem = {
     number: number;
     title: string;
     html_url: string;
@@ -23,39 +23,34 @@ type GhSearchItem = {
 };
 
 /**
- * Pure filter: keep only pull-request search hits that look related to the issue.
+ * Pure map/sort: keep PR search hits, open first, then highest number.
+ * Search query is already scoped to the repo + issue number.
  */
 export function filterLinkedPullItems(
     items: GhSearchItem[],
-    issueNumber: number,
+    _issueNumber: number,
 ): LinkedPullRequest[] {
-    const needle = String(issueNumber);
     const out: LinkedPullRequest[] = [];
     for (const item of items) {
         if (!item.pull_request && !item.html_url?.includes('/pull/')) continue;
-        const title = item.title ?? '';
-        const url = item.html_url ?? '';
-        // Prefer explicit issue references in title; still allow search hits
-        const related =
-            title.includes(`#${needle}`) ||
-            title.includes(needle) ||
-            true; /* search already scoped */
-        if (!related) continue;
         out.push({
             number: item.number,
-            title: item.title,
-            html_url: item.html_url,
+            title: item.title ?? '',
+            html_url: item.html_url ?? '',
             state: item.state === 'closed' ? 'closed' : 'open',
             draft: Boolean(item.draft),
             user_login: item.user?.login ?? 'unknown',
         });
     }
-    // open first
     out.sort((a, b) => {
         if (a.state !== b.state) return a.state === 'open' ? -1 : 1;
         return b.number - a.number;
     });
     return out;
+}
+
+export function countOpenLinkedPulls(pulls: LinkedPullRequest[]): number {
+    return pulls.filter((p) => p.state === 'open').length;
 }
 
 export async function fetchLinkedPullRequests(

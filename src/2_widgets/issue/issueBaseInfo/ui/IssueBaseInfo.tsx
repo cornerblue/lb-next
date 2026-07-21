@@ -15,7 +15,10 @@ import { orange, grey } from '@ant-design/colors';
 import { IssueBaseInfoAddReward } from './IssueBaseInfoAddReward';
 import { IssueExistingPulls } from './IssueExistingPulls';
 import { Prices } from '@/3_features/me/prices';
-import { fetchLinkedPullRequests } from '@/5_shared/utils/githubLinkedPulls';
+import {
+    countOpenLinkedPulls,
+    fetchLinkedPullRequests,
+} from '@/5_shared/utils/githubLinkedPulls';
 
 const IssueBaseInfoDesc = dynamic(() => import('./IssueBaseInfoDesc'), {
     ssr: false,
@@ -32,7 +35,7 @@ const IssueBaseInfo: FC<IssueBaseInfoProps> = async ({ rewardId }) => {
             data.repository_data.full_name,
             data.issue_number,
         );
-        const openPullCount = linkedPulls.filter((p) => p.state === 'open').length;
+        const openPullCount = countOpenLinkedPulls(linkedPulls);
 
         return (
             <Flex vertical gap="large">
