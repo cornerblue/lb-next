@@ -1,7 +1,8 @@
 'use client';
 import { Tag } from 'antd';
-import { FC, useEffect, useState } from 'react';
+import { FC, useEffect, useRef, useState } from 'react';
 import {
+    buildLinkedPullsSearchQuery,
     countOpenLinkedPulls,
     filterLinkedPullItems,
     type GhSearchItem,
@@ -16,6 +17,9 @@ const cacheKey = (fullName: string, issueNumber: number) =>
     `lb-open-pr:${fullName}#${issueNumber}`;
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
+
+/** Dedupe concurrent fetches for the same issue within one tab session. */
+const inflight = new Map<string, Promise<number>>();
 
 function readCachedCount(key: string): number | null {
     try {
@@ -37,14 +41,80 @@ function writeCachedCount(key: string, n: number) {
     }
 }
 
+async function fetchOpenPrCount(
+    fullName: string,
+    issueNumber: number,
+): Promise<number> {
+    const key = cacheKey(fullName, issueNumber);
+    const cached = readCachedCount(key);
+    if (cached !== null) return cached;
+
+    const existing = inflight.get(key);
+    if (existing) return existing;
+
+    const q = encodeURIComponent(
+        buildLinkedPullsSearchQuery(fullName, issueNumber, true),
+    );
+
+    const promise = fetch(
+        `https://api.github.com/search/issues?q=${q}&per_page=10`,
+        {
+            headers: { Accept: 'application/vnd.github+json' },
+        },
+    )
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+            if (!data) return 0;
+            const items = Array.isArray(data.items)
+                ? (data.items as GhSearchItem[])
+                : [];
+            const n = countOpenLinkedPulls(
+                filterLinkedPullItems(items, issueNumber),
+            );
+            writeCachedCount(key, n);
+            return n;
+        })
+        .catch(() => 0)
+        .finally(() => {
+            inflight.delete(key);
+        });
+
+    inflight.set(key, promise);
+    return promise;
+}
+
 /**
  * Lightweight client badge: open PR count for a bounty issue (#76).
- * Session-cached to limit unauthenticated GitHub search traffic.
+ * Fetches only when in view; session-cached + inflight-deduped to limit
+ * unauthenticated GitHub search traffic on the feed.
  */
 const OpenPrBadge: FC<Props> = ({ fullName, issueNumber }) => {
+    const hostRef = useRef<HTMLSpanElement>(null);
+    const [visible, setVisible] = useState(false);
     const [count, setCount] = useState<number | null>(null);
 
     useEffect(() => {
+        const el = hostRef.current;
+        if (!el || typeof IntersectionObserver === 'undefined') {
+            setVisible(true);
+            return;
+        }
+        const io = new IntersectionObserver(
+            (entries) => {
+                if (entries.some((e) => e.isIntersecting)) {
+                    setVisible(true);
+                    io.disconnect();
+                }
+            },
+            { rootMargin: '120px' },
+        );
+        io.observe(el);
+        return () => io.disconnect();
+    }, []);
+
+    useEffect(() => {
+        if (!visible || !fullName || !issueNumber) return;
+
         let cancelled = false;
         const key = cacheKey(fullName, issueNumber);
         const cached = readCachedCount(key);
@@ -53,38 +123,23 @@ const OpenPrBadge: FC<Props> = ({ fullName, issueNumber }) => {
             return;
         }
 
-        const q = encodeURIComponent(
-            `repo:${fullName} is:pr is:open ${issueNumber} in:title,body`,
-        );
-        fetch(`https://api.github.com/search/issues?q=${q}&per_page=10`, {
-            // Browser sets User-Agent; Accept is enough for public search.
-            headers: { Accept: 'application/vnd.github+json' },
-        })
-            .then((r) => (r.ok ? r.json() : null))
-            .then((data) => {
-                if (cancelled || !data) return;
-                const items = Array.isArray(data.items)
-                    ? (data.items as GhSearchItem[])
-                    : [];
-                const n = countOpenLinkedPulls(
-                    filterLinkedPullItems(items, issueNumber),
-                );
-                writeCachedCount(key, n);
-                setCount(n);
-            })
-            .catch(() => {
-                if (!cancelled) setCount(null);
-            });
+        fetchOpenPrCount(fullName, issueNumber).then((n) => {
+            if (!cancelled) setCount(n);
+        });
+
         return () => {
             cancelled = true;
         };
-    }, [fullName, issueNumber]);
+    }, [visible, fullName, issueNumber]);
 
-    if (!count) return null;
     return (
-        <Tag color="blue" style={{ marginLeft: 8 }}>
-            {count} open PR{count === 1 ? '' : 's'}
-        </Tag>
+        <span ref={hostRef}>
+            {count ? (
+                <Tag color="blue" style={{ marginLeft: 8 }}>
+                    {count} open PR{count === 1 ? '' : 's'}
+                </Tag>
+            ) : null}
+        </span>
     );
 };
 

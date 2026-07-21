@@ -10,6 +10,11 @@ type Props = {
     pulls: LinkedPullRequest[];
 };
 
+function stateLabel(pr: LinkedPullRequest): string {
+    if (pr.draft && pr.state === 'open') return 'draft';
+    return pr.state;
+}
+
 /**
  * Lists GitHub PRs that reference this bounty issue (LB issue page).
  */
@@ -28,9 +33,18 @@ const IssueExistingPulls: FC<Props> = ({ pulls }) => {
             </Flex>
             <Flex vertical gap={6}>
                 {pulls.map((pr) => (
-                    <Flex key={pr.number} align="center" gap="small" wrap="wrap">
-                        <Tag color={pr.state === 'open' ? 'processing' : 'default'}>
-                            {pr.draft ? 'draft' : pr.state}
+                    <Flex
+                        key={pr.html_url || pr.number}
+                        align="center"
+                        gap="small"
+                        wrap="wrap"
+                    >
+                        <Tag
+                            color={
+                                pr.state === 'open' ? 'processing' : 'default'
+                            }
+                        >
+                            {stateLabel(pr)}
                         </Tag>
                         <Link
                             href={pr.html_url}
